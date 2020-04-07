@@ -26,12 +26,28 @@ type SecretProviderConfig struct {
 	Cs            []uint16
 	LocalCA       string
 	AllowInsecure bool
+	JWKClientId     string
+	JWKClientSecret string
 }
 
 var (
 	ErrInsecureJWKSource = errors.New("JWK client is using an insecure connection to the JWK service")
 	ErrPinnedKeyNotFound = errors.New("JWK client did not find a pinned key")
 )
+
+type BasicAuthorizationInjector struct {
+	roundTripper http.RoundTripper
+	cfg *SecretProviderConfig
+}
+
+func (self BasicAuthorizationInjector) RoundTrip(request *http.Request) (*http.Response, error) {
+	if self.cfg.JWKClientId != "" || self.cfg.JWKClientSecret != "" {
+		token := fmt.Sprintf("%s:%s", self.cfg.JWKClientId, self.cfg.JWKClientSecret)
+		encodedToken := base64.StdEncoding.EncodeToString([]byte(token))
+		request.Header.Add("Authorization", fmt.Sprintf("Basic %s", encodedToken))
+	}
+	return self.roundTripper.RoundTrip(request)
+}
 
 func SecretProvider(cfg SecretProviderConfig, te auth0.RequestTokenExtractor) (*auth0.JWKClient, error) {
 	if len(cfg.Cs) == 0 {
@@ -75,7 +91,7 @@ func SecretProvider(cfg SecretProviderConfig, te auth0.RequestTokenExtractor) (*
 	opts := auth0.JWKClientOptions{
 		URI: cfg.URI,
 		Client: &http.Client{
-			Transport: transport,
+			Transport: &BasicAuthorizationInjector{roundTripper: transport, cfg: &cfg},
 		},
 	}
 

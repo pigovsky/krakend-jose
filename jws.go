@@ -29,6 +29,8 @@ type SignatureConfig struct {
 	CookieKey          string   `json:"cookie_key,omitempty"`
 	CipherSuites       []uint16 `json:"cipher_suites,omitempty"`
 	DisableJWKSecurity bool     `json:"disable_jwk_security"`
+	JWKClientId 	   string   `json:"jwk_client_id"`
+	JWKClientSecret    string   `json:"jwk_client_secret"`
 	Fingerprints       []string `json:"jwk_fingerprints,omitempty"`
 	LocalCA            string   `json:"jwk_local_ca,omitempty"`
 }

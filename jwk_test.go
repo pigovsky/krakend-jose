@@ -2,12 +2,78 @@
 package jose
 
 import (
+	"bytes"
 	"crypto/tls"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+
+type MockRoundTripper struct {
+	AssertFunc func(request* http.Request)
+}
+
+func (self MockRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	self.AssertFunc(request)
+	return nil, nil
+}
+
+func TestBasicAuthorizationInjector_adds_basic_auth(t *testing.T)  {
+	config := SecretProviderConfig{
+		URI:             "",
+		CacheEnabled:    false,
+		CacheDuration:   0,
+		Fingerprints:    nil,
+		Cs:              nil,
+		LocalCA:         "",
+		AllowInsecure:   true,
+		JWKClientId:     "test",
+		JWKClientSecret: "secret",
+	}
+	injector := BasicAuthorizationInjector {
+		roundTripper: MockRoundTripper{
+			AssertFunc: func(request *http.Request) {
+				actualAuth := request.Header.Get("Authorization")
+				expectedAuth := "Basic dGVzdDpzZWNyZXQ="
+				if actualAuth != expectedAuth {
+					t.Errorf("Wrong Authorization. have: %s, want: %s", actualAuth, expectedAuth)
+				}
+			},
+		},
+		cfg: &config,
+	}
+	req, _ := http.NewRequest("GET", "www.w.com", new(bytes.Buffer))
+	injector.RoundTrip(req)
+}
+
+func TestBasicAuthorizationInjector_does_not_add_basic_auth(t *testing.T)  {
+	config := SecretProviderConfig{
+		URI:             "",
+		CacheEnabled:    false,
+		CacheDuration:   0,
+		Fingerprints:    nil,
+		Cs:              nil,
+		LocalCA:         "",
+		AllowInsecure:   true,
+		JWKClientId:     "",
+		JWKClientSecret: "",
+	}
+	injector := BasicAuthorizationInjector {
+		roundTripper: MockRoundTripper{
+			AssertFunc: func(request *http.Request) {
+				actualAuth := request.Header.Get("Authorization")
+				if actualAuth != "" {
+					t.Errorf("No Authorization wanted. have: %s", actualAuth)
+				}
+			},
+		},
+		cfg: &config,
+	}
+	req, _ := http.NewRequest("GET", "www.w.com", new(bytes.Buffer))
+	injector.RoundTrip(req)
+}
 
 func TestJWK(t *testing.T) {
 	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
