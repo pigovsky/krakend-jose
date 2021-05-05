@@ -3,6 +3,7 @@ package gin
 import (
 	"bytes"
 	"context"
+	jose "github.com/devopsfaith/krakend-jose"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -122,5 +123,59 @@ func jwkEndpoint(name string) http.HandlerFunc {
 		}
 		rw.Header().Set("Content-Type", "application/json")
 		rw.Write(data)
+	}
+}
+
+func TestCanAccessViaRolesUrl(t *testing.T) {
+
+	config := jose.SignatureConfig{
+		RolesUrl: "http://auth-service/user/permissions",
+	}
+
+	getPayloadFromRolesUrl := func(incomingRequest *http.Request) ([]byte, error) {
+		payload := []byte(`
+          {
+			"role": ["a", "b"]
+		  }	
+        `)
+		return payload, nil
+	}
+
+	aclCheck, getClaims := SetupAclChecker(&config, getPayloadFromRolesUrl, nil)
+
+	for _, v := range []struct {
+		name         string
+		roleKey      string
+		requirements []string
+		expected     bool
+	}{
+		{
+			name:         "simple_success",
+			roleKey:      "role",
+			requirements: []string{"a"},
+			expected:     true,
+		},
+		{
+			name:         "simple_fail",
+			roleKey:      "role",
+			requirements: []string{"c"},
+			expected:     false,
+		},
+		{
+			name:         "multiple_success",
+			roleKey:      "role",
+			requirements: []string{"a", "b", "c"},
+			expected:     true,
+		},
+	} {
+		t.Run(v.name, func(t *testing.T) {
+			claims, err := getClaims(nil, nil)
+			if err != nil {
+				t.Errorf("Unexpected error while getting claims %s", err)
+			}
+			if res := aclCheck(v.roleKey, *claims, v.requirements); res != v.expected {
+				t.Errorf("'%s' have %v, want %v", v.name, res, v.expected)
+			}
+		})
 	}
 }

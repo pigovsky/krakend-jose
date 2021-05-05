@@ -2,6 +2,7 @@ package jose
 
 import (
 	"fmt"
+	"github.com/devopsfaith/krakend/logging"
 	"net/http"
 	"strings"
 
@@ -23,23 +24,11 @@ func NewValidator(signatureConfig *SignatureConfig, ef ExtractorFactory) (*auth0
 		auth0.RequestTokenExtractorFunc(ef(signatureConfig.CookieKey)),
 	)
 
-	decodedFs, err := DecodeFingerprints(signatureConfig.Fingerprints)
+	cfg, err := BuildSecretProviderConfig(signatureConfig)
 	if err != nil {
 		return nil, err
 	}
-
-	cfg := SecretProviderConfig{
-		URI:           signatureConfig.URI,
-		CacheEnabled:  signatureConfig.CacheEnabled,
-		Cs:            signatureConfig.CipherSuites,
-		Fingerprints:  decodedFs,
-		LocalCA:       signatureConfig.LocalCA,
-		AllowInsecure: signatureConfig.DisableJWKSecurity,
-		JWKClientId:     signatureConfig.JWKClientId,
-		JWKClientSecret: signatureConfig.JWKClientSecret,
-	}
-
-	sp, err := SecretProvider(cfg, te)
+	sp, err := SecretProvider(*cfg, te)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +44,26 @@ func NewValidator(signatureConfig *SignatureConfig, ef ExtractorFactory) (*auth0
 	), nil
 }
 
-func CanAccessNested(roleKey string, claims map[string]interface{}, required []string) bool {
+func BuildSecretProviderConfig(signatureConfig *SignatureConfig) (*SecretProviderConfig, error) {
+	decodedFs, err := DecodeFingerprints(signatureConfig.Fingerprints)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := SecretProviderConfig{
+		URI:             signatureConfig.URI,
+		CacheEnabled:    signatureConfig.CacheEnabled,
+		Cs:              signatureConfig.CipherSuites,
+		Fingerprints:    decodedFs,
+		LocalCA:         signatureConfig.LocalCA,
+		AllowInsecure:   signatureConfig.DisableJWKSecurity,
+		JWKClientId:     signatureConfig.JWKClientId,
+		JWKClientSecret: signatureConfig.JWKClientSecret,
+	}
+	return &cfg, nil
+}
+
+func CanAccessNested(logger logging.Logger, roleKey string, claims map[string]interface{}, required []string) bool {
 	if len(required) == 0 {
 		return true
 	}
@@ -73,10 +81,10 @@ func CanAccessNested(roleKey string, claims map[string]interface{}, required []s
 			return false
 		}
 	}
-	return CanAccess(keys[len(keys)-1], tmp, required)
+	return CanAccess(logger, keys[len(keys)-1], tmp, required)
 }
 
-func CanAccess(roleKey string, claims map[string]interface{}, required []string) bool {
+func CanAccess(logger logging.Logger, roleKey string, claims map[string]interface{}, required []string) bool {
 	if len(required) == 0 {
 		return true
 	}
@@ -93,10 +101,12 @@ func CanAccess(roleKey string, claims map[string]interface{}, required []string)
 
 	for _, role := range required {
 		for _, r := range roles {
-			if r.(string) == role {
+			userRole := r.(string)
+			if userRole == role {
 				return true
 			}
 		}
+		logger.Debug("User has no", role, "among her", len(roles), "roles")
 	}
 	return false
 }

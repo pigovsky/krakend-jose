@@ -49,12 +49,12 @@ func (self BasicAuthorizationInjector) RoundTrip(request *http.Request) (*http.R
 	return self.roundTripper.RoundTrip(request)
 }
 
-func SecretProvider(cfg SecretProviderConfig, te auth0.RequestTokenExtractor) (*auth0.JWKClient, error) {
+func GetHttpClient(cfg *SecretProviderConfig, roundTripInjector func(http.RoundTripper) http.RoundTripper) (*http.Client, error) {
 	if len(cfg.Cs) == 0 {
 		cfg.Cs = DefaultEnabledCipherSuites
 	}
 
-	dialer := NewDialer(cfg)
+	dialer := NewDialer(*cfg)
 
 	rootCAs, _ := x509.SystemCertPool()
 	if rootCAs == nil {
@@ -88,11 +88,22 @@ func SecretProvider(cfg SecretProviderConfig, te auth0.RequestTokenExtractor) (*
 		transport.DialTLS = dialer.DialTLS
 	}
 
+	httpClient := &http.Client{
+		Transport: roundTripInjector(transport),
+	}
+	return httpClient, nil
+}
+
+func SecretProvider(cfg SecretProviderConfig, te auth0.RequestTokenExtractor) (*auth0.JWKClient, error) {
+	httpClient, err := GetHttpClient(&cfg, func(transport http.RoundTripper) http.RoundTripper {
+		return &BasicAuthorizationInjector{roundTripper: transport, cfg: &cfg}
+	})
+	if err != nil {
+		return nil, err
+	}
 	opts := auth0.JWKClientOptions{
-		URI: cfg.URI,
-		Client: &http.Client{
-			Transport: &BasicAuthorizationInjector{roundTripper: transport, cfg: &cfg},
-		},
+		URI:    cfg.URI,
+		Client: httpClient,
 	}
 
 	if !cfg.CacheEnabled {
